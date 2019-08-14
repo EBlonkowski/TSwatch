@@ -17,5 +17,10 @@ Suggests:
     rmarkdown
 Imports: 
     dplyr,
-    tidyr
+    tidyr,
+    shiny,
+    shinythemes,
+    plotly,
+    purrr
 VignetteBuilder: knitr
+RoxygenNote: 6.1.1

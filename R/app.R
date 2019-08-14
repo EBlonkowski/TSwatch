@@ -1,30 +1,29 @@
-library(shiny)
-library(shinythemes)
-library(fpp2)
-library(plotly)
-library(tsbox)
-library(feasts)
-library(ggthemes)
-library(tsibble)
-library(lubridate)
-library(purrr)
-library(purrrlyr)
-library(testthat)
+
+#' @import shiny
+#' @importFrom tsibble index as_tsibble
+#' @importFrom purrr map is_empty
+NULL
+
+################################################################################
+## Timeplot module
 
 timeplot_UI <- function(id) {
     ns <- NS(id)
     
     tagList(
-        plotlyOutput(ns("plot"))
+        plotly::plotlyOutput(ns("plot"))
     )
 }
 
 timeplot_module <- function(input, output, session, data) {
-    output$plot <- renderPlotly({
+    output$plot <- plotly::renderPlotly({
         tsdata <- data()
         timeseries_plot(tsdata)
     })
 }
+
+################################################################################
+## Season plot module
 
 seasonplot_UI <- function(id) {
     ns <- NS(id)
@@ -64,6 +63,9 @@ seasonplot_module <- function(input, output, session, data) {
     })
 }
 
+################################################################################
+## Versus plot module
+
 versusplot_UI <- function(id) {
     ns <- NS(id)
     
@@ -96,9 +98,12 @@ versusplot_module <- function(input, output, session, data) {
     
 }
 
+################################################################################
+## Variable and key selection module
+
+
 select_UI <- function(id) {
     ns <- NS(id)
-    
     
     uiOutput(ns('select'))
 }
@@ -110,7 +115,9 @@ select_module <- function(input, output, session, data) {
     output$select <- renderUI({
         ns <- session$ns
         
-        if(n_keys(data) > 1) {
+        # if we have only one key AND one key column
+        if(n_keys(data) >= 1 && !is_empty(key_vars(data))) {
+            # we save the unique keys
             observation_units <- key_data(data)[[1]]
         }
         variables <- measured_vars(data)
@@ -118,7 +125,9 @@ select_module <- function(input, output, session, data) {
         tagList(
             # if there is a single time series (single obervation unit / key)
             if(n_keys(data) < 2) {
-                NULL
+                # if we have at least one key column
+                if(!is_empty(key_vars(data)))
+                    paste("Only one time series: ", observation_units)
             } else {
                 
                 checkboxGroupInput(
@@ -168,7 +177,7 @@ select_module <- function(input, output, session, data) {
 }
 
 # Define UI for miles per gallon app ----
-ui <- fluidPage(theme=shinytheme('darkly'),
+ui <- fluidPage(theme=shinythemes::shinytheme('darkly'),
                 
     pageWithSidebar(
     # App title ----
@@ -232,6 +241,7 @@ tsibble_to_long <- function(tsdata) {
 #' Facet by variables, all keys on same graph
 #' 
 timeseries_plot <- function(tsdata) {
+    print(tsdata)
     # get index and keys information
     data <- as_tibble(tsdata)
     keys <- key_vars(tsdata)
@@ -245,32 +255,36 @@ timeseries_plot <- function(tsdata) {
     measures_plot <- map(
         measured_vars(tsdata),
         function(var) {
-            plot_ly(
-                x = ~data[[index(tsdata)]], y = ~data[[var]], 
+            plotly::plot_ly(
+                x = ~data[[tsibble::index(tsdata)]], y = ~data[[var]], 
                 color = if(length(keys) == 1) ~data[[keys]] else "#9E0142",
                 # only show legend if there is more than one key and if it is
                 # the first plot (otherwise legend will be duplicated)
                 showlegend = n_keys(tsdata) > 1 &&
                     var == measured_vars(tsdata)[1],
-                type = 'scattergl', mode = 'line', colors = 'Spectral'
-            ) %>%
-                layout(
+                type = 'scattergl', mode = 'line', colors = 'Spectral',
+                # 4000 is good for 32 measures
+                # for one plot should be around 500
+                height = 250 + 125*length(measured_vars(tsdata))
+                ) %>%
+                plotly::layout(
                     yaxis = list(
                         title = var, color = '#ffffff', zeroline = FALSE
                     )
+                    #margin = list(l = 50, r = 12, t = 0, b = 0)
                 )
         })
     
-    subplot(measures_plot, nrows = length(measures_plot), shareX = TRUE,
-            titleY = TRUE) %>%
-        layout(
+    plotly::subplot(measures_plot, nrows = length(measures_plot), shareX = TRUE,
+            titleY = TRUE, margin = 0.005) %>% 
+        plotly::layout(
             plot_bgcolor='#222222',
             paper_bgcolor= '#222222',
             yaxis = list(zeroline = FALSE, showline = FALSE),
             xaxis = list(color = '#ffffff', title = '', zeroline = FALSE),
             legend = list(orientation = 'h',
                           font = list(color = '#ffffff'))
-            #margin = list(l = 50, r = 12)
+            #margin = list(l = 50, r = 12, t = 0, b = 0)
         )
     
 }
@@ -333,9 +347,14 @@ look_at_ts <- function(data, pivot_longer = TRUE) {
               paste(class(data), collapse = ', ')
               )
         )
-    print(getwd())
     tsdata = convert_ts(data, pivot_longer = pivot_longer)
     print(tsdata)
+    
+    # for now we only accept time series that have a single key column
+    shiny::need(
+        length(key_vars(tsdata)) < 2,
+        "for now we only accept time series that have a single key column")
+    
     app <- shinyApp(
         ui, 
         server = function(input, output, session) {
