@@ -1,7 +1,9 @@
 
 #' @import shiny
-#' @importFrom tsibble index as_tsibble
+#' @import dplyr
+#' @import tsibble
 #' @importFrom purrr map is_empty
+#' @importFrom assertthat assert_that
 NULL
 
 ################################################################################
@@ -41,26 +43,32 @@ seasonplot_module <- function(input, output, session, data) {
     output$select_period <- renderUI({
         ns <- session$ns
         tsdata <- data()
-        
         selectInput(
             ns("period"),
             label = "Period choice",
-            choices = common_periods(tsdata))
+            choices = fabletools::common_periods(tsdata))
         
     })
     
     output$plot <- renderPlot({
+        #print("renderPlot: hi")
         tsdata <- data()
-        gg_season(tsdata, labels = 'left', y = measured_vars(tsdata)[1]) #+
+        #library(fpp2)
+        #assertthat::assert_that(all(tsdata$value == convert_ts(a10)$value))
+        #print(tsdata)
+        #print("renderPlot: bye")
+        feasts::gg_season(tsdata, labels = 'left') +
+            ggdark::dark_theme_gray()
+        #feasts::gg_season(tsdata, labels = 'left', y = measured_vars(tsdata)[1]) #+
             #theme_dark()
     })
     
     
-    output$subseries_plot <- renderPlot({
-        tsdata <- data()
-        gg_subseries(tsdata, y = measured_vars(tsdata)[1]) #+
-        #theme_dark()
-    })
+    # output$subseries_plot <- renderPlot({
+    #     tsdata <- data()
+    #     feasts::gg_subseries(tsdata, y = measured_vars(tsdata)[1]) #+
+    #     #theme_dark()
+    # })
 }
 
 ################################################################################
@@ -75,15 +83,15 @@ versusplot_UI <- function(id) {
 
 versusplot_module <- function(input, output, session, data) {
     # input check
-    assertthat::assert_that(is_tsibble(data))
+    assert_that(is_tsibble(data))
     
     output$select <- renderUI({
         ns <- session$ns
         # if the time series is univariate
-        if(purrr::is_empty(key(data))) {
+        if(purrr::is_empty(measured_vars(data))) {
             return (tagList('Need a multivariate time series for plotting'))
         }
-        cols <- key_data(data)$key
+        cols <- measured_vars(data)
         tagList(
             selectInput(ns("variable"), "X axis variable:", 
                         setNames(as.list(cols), cols)),
@@ -110,7 +118,7 @@ select_UI <- function(id) {
 
 select_module <- function(input, output, session, data) {
     # input check
-    assertthat::assert_that(is_tsibble(data))
+    assert_that(tsibble::is_tsibble(data))
     
     output$select <- renderUI({
         ns <- session$ns
@@ -176,42 +184,7 @@ select_module <- function(input, output, session, data) {
     return(selected_ts)
 }
 
-# Define UI for miles per gallon app ----
-ui <- fluidPage(theme=shinythemes::shinytheme('darkly'),
-                
-    pageWithSidebar(
-    # App title ----
-    NULL,
-    # Sidebar panel for inputs ----
-    column(4, 
-           imageOutput('logo', height = "50%", width = "50%"), 
-           sidebarPanel(
-               select_UI('select'),
-               width = 12
-           )
-        ),
-    # Main panel for displaying outputs ----
-    mainPanel(
-        
-        # Output: Formatted text for caption ----
-        h3(textOutput("caption")),
-        
-        tabsetPanel(id = 'tabset',
-            # time series panel
-            tabPanel("time plot",
-                timeplot_UI("timeplot")  
-            ),
-            # seasonal panel
-            tabPanel("seasonal plot",
-                seasonplot_UI("seasonplot")
-            ),
-            # versus panel
-            tabPanel("versus plot",
-                     versusplot_UI('versusplot')
-                     )
-        )
-    ))
-)
+
 
 
 #' Transforms a tsibble to long format tibble.
@@ -239,9 +212,8 @@ tsibble_to_long <- function(tsdata) {
 #' Time plot.
 #'
 #' Facet by variables, all keys on same graph
-#' 
+#'@export 
 timeseries_plot <- function(tsdata) {
-    print(tsdata)
     # get index and keys information
     data <- as_tibble(tsdata)
     keys <- key_vars(tsdata)
@@ -289,10 +261,47 @@ timeseries_plot <- function(tsdata) {
     
 }
 
+
 #' Plots all variables against one xvar.
 #' 
-#' @param xvar Variable to put on x axis.
+#' 
+#' @param tsdata (tsibble) Data to be plotted, tsibble time series object, 0 or one keys at least 2 measured variables.
+#' @param xvar (string) Variable to put on x axis.
 versus_plot <- function(tsdata, xvar) {
+    
+    
+    assertthat::is.string(xvar)
+    assert_that(xvar %in% measured_vars(tsdata), msg="[versus_plot] xvar is not a measured variable")
+    assert_that(length(key(tsdata)) <= 1, msg = "[versus_plot] more than 1 keys not supported")
+    # symbols for the columns of interest:
+    sym_xvar = sym(xvar)
+    # if no key use NULL otherwise the key
+    if(!length(key(tsdata))) {
+        the_key = NULL
+    } else {
+        the_key = key(tsdata)[[1]]
+    }
+    yvars = setdiff(measured_vars(tsdata), as.character(xvar))
+    assert_that(length(yvars)>0, msg="[versus_plot] Need at least 2 measured variables")
+    
+    as_tibble(tsdata) %>%
+        select(-index(tsdata)) %>% # remove the time variable
+        pivot_longer(yvars, names_to = "yvar__", values_to = "value__") %>%
+        ggplot(aes(x=!!sym_xvar, y=value__, color=!!the_key)) +
+        geom_point() +
+        ylab('') +
+        facet_wrap(~yvar__, scales="free_y", ncol=1) + 
+        ggdark::dark_theme_gray() +
+        theme(panel.background = element_rect(fill = '#222222'),
+              plot.background = element_rect(fill = '#222222', colour='#222222'))
+}
+
+
+#' Plots all variables against one xvar.
+#' 
+#' 
+#' @param xvar (string) Variable to put on x axis.
+versus_plot_old <- function(tsdata, xvar) {
     assertthat::is.string(xvar)
     assertthat::assert_that(xvar %in% key_data(tsdata)$key)
     
@@ -318,10 +327,10 @@ convert_ts <- function(ts_data, pivot_longer = TRUE) {
     # if data is subdaily and a multiple of minute interval
     if(is_subdaily && (60*24) %% (frequency(ts_data)/365) == 0) {
         period_in_minutes = (60*24) / (frequency(ts_data)/365)
-        as_tsibble(ts_data, pivot_longer = pivot_longer) %>%
-            group_by_key() %>%
-            index_by(index2 = 
-                         round_date(
+        tsibble::as_tsibble(ts_data, pivot_longer = pivot_longer) %>%
+            tsibble::group_by_key() %>%
+            tsibble::index_by(index2 = 
+                lubridate::round_date(
                              index,
                              paste(period_in_minutes, 'min')
                              )) %>%
@@ -330,16 +339,57 @@ convert_ts <- function(ts_data, pivot_longer = TRUE) {
             return ()
     } 
     else {
-        return (as_tsibble(ts_data))
+        return (tsibble::as_tsibble(ts_data))
     }
         
 }
+
+
+# Define UI
+ui <- fluidPage(theme=shinythemes::shinytheme('darkly'),
+                
+                pageWithSidebar(
+                    # App title ----
+                    NULL,
+                    # Sidebar panel for inputs ----
+                    column(4, 
+                           imageOutput('logo', height = "50%", width = "50%"), 
+                           sidebarPanel(
+                               select_UI('select'),
+                               width = 12
+                           )
+                    ),
+                    # Main panel for displaying outputs ----
+                    mainPanel(
+                        
+                        # Output: Formatted text for caption ----
+                        h3(textOutput("caption")),
+                        
+                        tabsetPanel(id = 'tabset',
+                                    # time series panel
+                                    tabPanel("time plot",
+                                             timeplot_UI("timeplot")  
+                                    ),
+                                    # seasonal panel
+                                    tabPanel("seasonal plot",
+                                             seasonplot_UI("seasonplot")
+                                    ),
+                                    # versus panel
+                                    tabPanel("versus plot",
+                                             versusplot_UI('versusplot')
+                                    ),
+                                    selected = "versus plot"
+                        )
+                    ))
+)
 
 #' Visualises a time series.
 #' 
 #' @param pivot_longer Logical. If TRUE each column is an observation unit or
 #' key, if FALSE each column is taken to be a variable. Does not apply if data
 #' is already a tsibble.
+#' 
+#' @export
 look_at_ts <- function(data, pivot_longer = TRUE) {
     # Here we convert the data to tsibble
     print(
@@ -352,7 +402,7 @@ look_at_ts <- function(data, pivot_longer = TRUE) {
     
     # for now we only accept time series that have a single key column
     shiny::need(
-        length(key_vars(tsdata)) < 2,
+        length(tsibble::key_vars(tsdata)) < 2,
         "for now we only accept time series that have a single key column")
     
     app <- shinyApp(
@@ -375,7 +425,7 @@ look_at_ts <- function(data, pivot_longer = TRUE) {
             selected_ts <- callModule(select_module, 'select', tsdata)
             callModule(timeplot_module, 'timeplot', selected_ts)
             callModule(seasonplot_module, 'seasonplot', selected_ts)
-            callModule(versusplot_module, 'versusplot', tsdata)
+            callModule(versusplot_module, 'versusplot', selected_ts)
         }
             )
     runApp(app, launch.browser = TRUE)

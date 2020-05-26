@@ -1,0 +1,37 @@
+---
+title: "Graphics checks"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(TSwatch)
+library(tsibble)
+library(tsibbledata)
+library(dplyr)
+library(fpp2)
+```
+
+## Introduction
+
+Since graphical unit testing is not very convenient, I'm using this notebook as an informal testing suite.
+
+We'll mostly use 3 datasets:
+- a10 in fpp2
+- pedestrian in tsibble
+- hh_budget in tsibble data
+
+## Versus Plot
+
+```{r}
+versus_plot2(convert_ts(a10), 'value')
+```
+
+```{r}
+versus_plot2(pedestrian, 'Time')
+```
+
+```{r}
+versus_plot2(hh_budget, 'Unemployment')
+```
+

@@ -1,3 +1,5 @@
+library(fpp2)
+library(plotly)
 
 test_that("Conversion to long tsibble, 1 variable many keys", {
     converted <- convert_ts(visnights)
