@@ -1,6 +1,7 @@
 
 #' @import shiny
 #' @import dplyr
+#' @import tibble
 #' @import tsibble
 #' @importFrom purrr map is_empty
 #' @importFrom assertthat assert_that
@@ -20,7 +21,9 @@ timeplot_UI <- function(id) {
 timeplot_module <- function(input, output, session, data) {
     output$plot <- plotly::renderPlotly({
         tsdata <- data()
-        timeseries_plot(tsdata)
+        cat(file=stderr(), '[timeplot/plot] updating time series plot', '\n')
+        cat(file=stderr(), '[timeplot/plot] dim(tsdata)', dim(tsdata), '\n')
+        return (timeseries_plot(tsdata))
     })
 }
 
@@ -82,16 +85,15 @@ versusplot_UI <- function(id) {
 }
 
 versusplot_module <- function(input, output, session, data) {
-    # input check
-    assert_that(is_tsibble(data))
     
     output$select <- renderUI({
         ns <- session$ns
+        tsdata <- data()
         # if the time series is univariate
-        if(purrr::is_empty(measured_vars(data))) {
+        if(purrr::is_empty(measured_vars(tsdata))) {
             return (tagList('Need a multivariate time series for plotting'))
         }
-        cols <- measured_vars(data)
+        cols <- measured_vars(tsdata)
         tagList(
             selectInput(ns("variable"), "X axis variable:", 
                         setNames(as.list(cols), cols)),
@@ -101,7 +103,8 @@ versusplot_module <- function(input, output, session, data) {
     
     output$plot <- renderPlot({
         print(input$variable)
-        versus_plot(data, input$variable)
+        tsdata <- data()
+        versus_plot(tsdata, input$variable)
     })
     
 }
@@ -117,20 +120,22 @@ select_UI <- function(id) {
 }
 
 select_module <- function(input, output, session, data) {
+    cat(file=stderr(), "[select_module] initializing selection module", "\n")
+    
     # input check
     assert_that(tsibble::is_tsibble(data))
-    
     output$select <- renderUI({
-        ns <- session$ns
+        cat(file=stderr(), "[select/select] updating selection UI", "\n")
         
+        ns <- session$ns
         # if we have only one key AND one key column
         if(n_keys(data) >= 1 && !is_empty(key_vars(data))) {
             # we save the unique keys
             observation_units <- key_data(data)[[1]]
         }
         variables <- measured_vars(data)
-        
-        tagList(
+
+        ui_tags <- tagList(
             # if there is a single time series (single obervation unit / key)
             if(n_keys(data) < 2) {
                 # if we have at least one key column
@@ -139,7 +144,7 @@ select_module <- function(input, output, session, data) {
             } else {
                 
                 checkboxGroupInput(
-                    ns("key"), key(data)[[1]],
+                    ns("key"), key_vars(data)[[1]],
                     setNames(as.list(observation_units), observation_units),
                     selected = observation_units[1]
                     )
@@ -149,16 +154,26 @@ select_module <- function(input, output, session, data) {
                             setNames(as.list(variables), variables),
                             selected = variables)        
             )
+        
+        return (ui_tags)
+        
     })
     
     # Key/variables selection
     # compute the cut TSE
     selected_ts <- reactive({
+        cat(file=stderr(), "[select/selected_ts] says hi", "\n")
+        
         shiny::validate(
             # app state is corrupted
             need(is_tsibble(data), '[cor_cut_ctl] Need a tsibble')
         )
         
+        if (!is.character(input$key) | !is.character(input$variable)) {
+            cat(file=stderr(), "[selected_ts] no selection returning original", "\n")
+            return (data)
+            
+        }
         
         # if we have different keys
         if(n_keys(data) > 1) {
@@ -172,14 +187,17 @@ select_module <- function(input, output, session, data) {
             selected <- select(data, !!index(data), !!(input$variable))
         }
         
+        
         shiny::validate(
             # app state is corrupted
             need(is_tsibble(selected), '[cor_cut_ctl] Need a tsibble')
         )
+        cat(file=stderr(), "[select/selected_ts] says bye", "\n")
         
-        print(selected)
         return(selected)
     })
+    
+    cat(file=stderr(), "[select_module] says bye", "\n")
     
     return(selected_ts)
 }
@@ -217,8 +235,7 @@ timeseries_plot <- function(tsdata) {
     # get index and keys information
     data <- as_tibble(tsdata)
     keys <- key_vars(tsdata)
-    
-    assertthat::assert_that(length(keys) <= 1L) # only one key colum
+    assert_that(length(keys) <= 1L) # only one key colum
 
     # convert key column to character
     if(length(keys) == 1L)
@@ -262,6 +279,30 @@ timeseries_plot <- function(tsdata) {
 }
 
 
+#' Computes information about columns of a tsibble object.
+#'
+#' @param tsdata A tsibble object.
+#'
+#' @return tibble data frame containing metadata about each column:
+#'      is numeric, is measured, is key and is time index.
+tsibble_colinfo <- function(tsdata) {
+    
+    assert_that(is_tsibble(tsdata))
+    
+    numeric_cols <- tsdata %>% map_lgl(is.numeric)
+    
+    tibble(col_name = names(numeric_cols), is_numeric = numeric_cols) %>%
+        # flag the measured variables
+        mutate(is_measured = col_name %in% measured_vars(tsdata)) %>%
+        # flag the key variables
+        mutate(is_key = col_name %in% key_vars(tsdata)) %>%
+        # flag the time index
+        mutate(is_time_index = col_name %in% index_var(tsdata))
+    
+    
+}
+
+
 #' Plots all variables against one xvar.
 #' 
 #' 
@@ -281,11 +322,16 @@ versus_plot <- function(tsdata, xvar) {
     } else {
         the_key = key(tsdata)[[1]]
     }
-    yvars = setdiff(measured_vars(tsdata), as.character(xvar))
+    # we only take the key and the numeric measured variables
+    col_selection <- tsibble_colinfo(tsdata) %>%
+        filter(is_numeric | is_key, !is_time_index) %>%
+        pull(col_name)
+    
+    yvars = setdiff(col_selection, c(as.character(xvar), the_key))
     assert_that(length(yvars)>0, msg="[versus_plot] Need at least 2 measured variables")
     
     as_tibble(tsdata) %>%
-        select(-index(tsdata)) %>% # remove the time variable
+        select(all_of(col_selection)) %>% # remove the time variable
         pivot_longer(yvars, names_to = "yvar__", values_to = "value__") %>%
         ggplot(aes(x=!!sym_xvar, y=value__, color=!!the_key)) +
         geom_point() +
@@ -297,22 +343,6 @@ versus_plot <- function(tsdata, xvar) {
 }
 
 
-#' Plots all variables against one xvar.
-#' 
-#' 
-#' @param xvar (string) Variable to put on x axis.
-versus_plot_old <- function(tsdata, xvar) {
-    assertthat::is.string(xvar)
-    assertthat::assert_that(xvar %in% key_data(tsdata)$key)
-    
-    as_tibble(tsdata) %>%
-        spread(key, value) %>%
-        select(-index) %>%
-        gather(key = variable, value = value, -!!xvar) %>%
-        ggplot(aes_string(x = xvar, y = 'value',
-                          group = 'variable', color = 'variable')) + 
-        geom_point()
-}
 
 #' Converts ts timeries to tsibble format.
 #' 
@@ -371,14 +401,13 @@ ui <- fluidPage(theme=shinythemes::shinytheme('darkly'),
                                              timeplot_UI("timeplot")  
                                     ),
                                     # seasonal panel
-                                    tabPanel("seasonal plot",
-                                             seasonplot_UI("seasonplot")
-                                    ),
+                                    # tabPanel("seasonal plot",
+                                    #          seasonplot_UI("seasonplot")
+                                    # ),
                                     # versus panel
                                     tabPanel("versus plot",
                                              versusplot_UI('versusplot')
-                                    ),
-                                    selected = "versus plot"
+                                    )
                         )
                     ))
 )
@@ -424,7 +453,7 @@ look_at_ts <- function(data, pivot_longer = TRUE) {
         
             selected_ts <- callModule(select_module, 'select', tsdata)
             callModule(timeplot_module, 'timeplot', selected_ts)
-            callModule(seasonplot_module, 'seasonplot', selected_ts)
+            #callModule(seasonplot_module, 'seasonplot', selected_ts)
             callModule(versusplot_module, 'versusplot', selected_ts)
         }
             )

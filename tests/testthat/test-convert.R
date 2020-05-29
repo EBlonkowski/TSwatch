@@ -39,3 +39,15 @@ test_that("convert_ts visnights dataset", {
     )
     
 })
+
+test_that("tsibble_colinfo correct meta on pedestrian dataset", {
+    r <- tsibble_colinfo(pedestrian)
+    
+    expect_true(all(
+        c("col_name", "is_numeric", "is_measured", "is_key", "is_time_index") %in% colnames(r)))
+    
+    # "Sensor" is the key column
+    expect_true(column_to_rownames(r, 'col_name')['Sensor', 'is_key'])
+    
+    expect_equal(r$is_measured %>% sum, 3) # we expect 3 measured variables
+})

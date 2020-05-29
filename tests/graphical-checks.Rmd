@@ -21,17 +21,34 @@ We'll mostly use 3 datasets:
 - pedestrian in tsibble
 - hh_budget in tsibble data
 
+## Time series plot
+
+```{r}
+timeseries_plot(convert_ts(a10))
+```
+
+
+```{r}
+timeseries_plot(pedestrian)
+```
+
+
+```{r}
+timeseries_plot(hh_budget)
+```
+
+
 ## Versus Plot
 
 ```{r}
-versus_plot2(convert_ts(a10), 'value')
+versus_plot(convert_ts(a10), 'value')
 ```
 
 ```{r}
-versus_plot2(pedestrian, 'Time')
+versus_plot(pedestrian, 'Time')
 ```
 
 ```{r}
-versus_plot2(hh_budget, 'Unemployment')
+versus_plot(hh_budget, 'Unemployment')
 ```
 

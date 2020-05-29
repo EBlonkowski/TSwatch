@@ -7,7 +7,9 @@
 versus_plot(tsdata, xvar)
 }
 \arguments{
-\item{xvar}{Variable to put on x axis.}
+\item{tsdata}{(tsibble) Data to be plotted, tsibble time series object, 0 or one keys at least 2 measured variables.}
+
+\item{xvar}{(string) Variable to put on x axis.}
 }
 \description{
 Plots all variables against one xvar.

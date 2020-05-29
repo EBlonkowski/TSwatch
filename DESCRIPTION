@@ -22,6 +22,7 @@ Imports:
     feasts,
     fabletools,
     tsibble,
+    tibble,
     dplyr,
     tidyr,
     shiny,
